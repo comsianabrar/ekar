@@ -17,6 +17,6 @@ $router->get('/', function () use ($router) {
     return $router->app->version();
 });
 
-$router->post('/calculate', 'BreakdownController@calculate');
+$router->post('/calculate', 'BreakdownController@calculateBreakdown');
 $router->get('/search', 'BreakdownController@search');
-$router->get('/test', 'TestController@index');
+//$router->get('/test', 'TestController@index');
