@@ -8,147 +8,87 @@ use Carbon\Carbon;
 
 class BreakDownController extends Controller
 {
-    public function calculateBreakdown(Request $request)
-    {
-        // Validate the request data
-        $this->validate($request, [
-            'start_timestamp' => 'required|date',
-            'end_timestamp' => 'required|date',
-            'time_expressions' => 'required|array',
-        ]);
+   public function calculateBreakdown(Request $request)
+   {
+       // Validate the request data
+       $this->validate($request, [
+           'start_timestamp' => 'required|date',
+           'end_timestamp' => 'required|date',
+           'time_expressions' => 'required|array',
+       ]);
 
-        $startTimestamp = Carbon::parse($request->input('start_timestamp'));
-        $endTimestamp = Carbon::parse($request->input('end_timestamp'));
-        $timeExpressions = $request->input('time_expressions');
+       $startTimestamp = Carbon::parse($request->input('start_timestamp'));
+       $endTimestamp = Carbon::parse($request->input('end_timestamp'));
+       $timeExpressions = $request->input('time_expressions');
 
-        $durationInSeconds = $endTimestamp->diffInSeconds($startTimestamp);
+       $durationInSeconds = $endTimestamp->diffInSeconds($startTimestamp);
 
-        $result = $this->_getMonthHoursDaysFromSeconds($durationInSeconds, $this->_isExpressionExists($timeExpressions, 'm'), $this->_isExpressionExists($timeExpressions, 'd'), $this->_isExpressionExists($timeExpressions, 'h'));
+       $breakdown_result = [];
 
-        $breakdown_result = [];
+       foreach ($timeExpressions as $expression){
+           $expression_formatted = strlen($expression) == 1 ? "1".$expression : $expression;
+           preg_match('/(\d+)([mdh])/', $expression_formatted, $matches);
 
-        foreach ($timeExpressions as $expression){
-            $value = 1;
-            if (preg_match('/^(\d*)([a-zA-Z]+)$/', $expression, $matches)) {
-                $value = $matches[1] !== '' ? $matches[1] : 1; // Default to 1 if no number is present
-                $unit = $matches[2];
-            }
-            switch ($unit){
+           $value = (int)$matches[1];
+           $unit_type = $matches[2];
 
-                case 'm':
-                    if((int)$result[$unit] == (int)$value){
-                        $breakdown_result[$expression] = 1;
-                        break;
-                    }elseif($result[$unit] < $value){
-                        $breakdown_result[$expression] = 0;
+           $units = 0;
 
-                    }else{
-                        $breakdown_result[$expression] =  round($result[$unit] / $value, 2);
-                        $result['m'] = $result[$unit]%$value;
-                    }
-                    break;
-                    case 'd':
-                        if($result[$unit] == $value){
-                            $breakdown[$expression] = 1;
+           switch ($unit_type){
+               case 'm':
+                   $units = floor($durationInSeconds / (30 * 24 * 3600 * $value));
+                   $durationInSeconds = $durationInSeconds % (30 * 24 * 3600 * $value);
+//                    echo $durationInSeconds. '-';
+                   break;
+               case 'd':
+                   $units = floor($durationInSeconds / (24 * 3600 * $value));
+                   $durationInSeconds =  $durationInSeconds % (24 * 3600 * $value);
+                   break;
+               case 'h':
+                    $units = floatval($durationInSeconds / (3600 * $value));
+                    $durationInSeconds = $durationInSeconds % (3600 * $value);
+                   break;
+               default:
+                   break;
+           }
 
-                        }elseif($result[$unit] < $value){
+           $breakdown_result[$expression] = $units;
+       }
 
-                            $breakdown_result[$expression] = 0;
+               $breakdownData = [
+           'start_timestamp' => $startTimestamp,
+           'end_timestamp' => $endTimestamp,
+           'time_expressions'=> json_encode($timeExpressions),
+           'breakdown_result' => json_encode($breakdown_result),
+       ];
 
-                        }else{
-                            $breakdown_result[$expression] =  round($result[$unit] / $value, 2);
-                            $result['d'] = $result[$unit]%$value;
-                        }
-                    break;
-                    case 'h':
+       $createdBreakdown = BreakDown::create($breakdownData);
 
-                        if($result[$unit] == $value){
-                            $breakdown[$expression] = 1;
-                        }elseif($result[$unit] < $value){
-                            $breakdown_result[$expression] = 0;
-                        }else{
-                            $breakdown_result[$expression] =  round($result[$unit] / $value, 2);
-                            $result['h'] = $result[$unit]%$value;
-                        }
-                    break;
-            }
+       return response()->json([
+           'breakdown' => $breakdown_result,
+           'message' => 'Breakdown calculated and stored successfully.',
+       ]);
+   }
 
-        }
+   public function searchBreakdowns(Request $request)
+   {
+       // Validate the request data
+       $this->validate($request, [
+           'start_timestamp' => 'required|date',
+           'end_timestamp' => 'required|date',
+       ]);
 
-        $breakdownData = [
-            'start_timestamp' => $startTimestamp,
-            'end_timestamp' => $endTimestamp,
-            'time_expressions'=> json_encode($timeExpressions),
-            'breakdown_result' => json_encode($breakdown_result),
-        ];
+       $startTimestamp = Carbon::parse($request->input('start_timestamp'));
+       $endTimestamp = Carbon::parse($request->input('end_timestamp'));
 
-        $createdBreakdown = BreakDown::create($breakdownData);
+       // Search for stored breakdowns
+       $breakdowns = BreakDown::where('start_timestamp', $startTimestamp)
+           ->where('end_timestamp', $endTimestamp)
+           ->get();
 
-        return response()->json([
-            'breakdown' => $breakdown_result,
-            'message' => 'Breakdown calculated and stored successfully.',
-        ]);
-    }
-
-    public function searchBreakdowns(Request $request)
-    {
-        // Validate the request data
-        $this->validate($request, [
-            'start_timestamp' => 'required|date',
-            'end_timestamp' => 'required|date',
-        ]);
-
-        $startTimestamp = Carbon::parse($request->input('start_timestamp'));
-        $endTimestamp = Carbon::parse($request->input('end_timestamp'));
-
-        // Search for stored breakdowns
-        $breakdowns = BreakDown::where('start_timestamp', $startTimestamp)
-            ->where('end_timestamp', $endTimestamp)
-            ->get();
-
-        return response()->json([
-            'breakdowns' => $breakdowns,
-        ]);
-    }
-
-
-    private  function _getMonthHoursDaysFromSeconds($seconds, $includeMonth,$includeDays, $includeHours )
-        {
-            $secondsPerMinute = 60;
-            $secondsPerHour = $secondsPerMinute * 60;
-            $secondsPerDay = $secondsPerHour * 24;
-            $secondsPerMonth = $secondsPerDay * 30;
-
-            $result = array();
-
-            if ($includeMonth) {
-                // Calculate months
-                $months = floor($seconds / $secondsPerMonth);
-                $seconds -= $months * $secondsPerMonth;
-                $result['m'] = $months;
-            }
-
-            if ($includeDays) {
-                // Calculate days
-                $days = floor($seconds / $secondsPerDay);
-                $seconds -= $days * $secondsPerDay;
-                $result['d'] = $days;
-            }
-
-            if ($includeHours) {
-                // Calculate hours
-                $hours = floor($seconds / $secondsPerHour);
-                $result['h'] = $hours;
-            }
-
-            return $result;
-        }
-
-        private function _isExpressionExists($timeExpressions, $expressionToCheck = 'm'){
-            foreach ($timeExpressions as $expression) {
-                if (strpos($expression, $expressionToCheck) !== false) {
-                  return true;
-                }
-            }
-        }
+       return response()->json([
+           'breakdowns' => $breakdowns,
+       ]);
+   }
 }
+
